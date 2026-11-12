@@ -62,8 +62,11 @@ async def busy_config(connection, ref, params, *, write=False):
         # surface keeps the framework default ``interrupt``.
         fallback = 'queue' if policy is not None and getattr(policy, 'source', None) == 'tui' else 'interrupt'
         display = (policy.config().get('display') or {}) if policy else {}
-        value = (display.get('busy_input_mode') or fallback if policy else
-                 authority.runner._effective_busy_input_mode(live.source))
+        # The profile's current explicit mode first, then the one frozen at creation: a mode chosen
+        # after a chat was created reaches that chat too (session_setting_commands.profile_busy_input_mode).
+        from gateway.session_setting_commands import profile_busy_input_mode
+        value = (profile_busy_input_mode(authority, policy) or display.get('busy_input_mode') or fallback
+                 if policy else authority.runner._effective_busy_input_mode(live.source))
         if value not in ('interrupt', 'steer', 'queue'):
             value = fallback
     return {'key': 'busy', 'value': value, 'scope': 'session'}

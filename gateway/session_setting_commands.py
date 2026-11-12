@@ -24,6 +24,27 @@ def local_policy(runner, source):
     return policy_for_source(runner, source)
 
 
+def profile_busy_input_mode(authority, policy):
+    """``display.busy_input_mode`` as the session's profile sets it NOW, else None.
+
+    A local session froze its profile's whole config at creation and re-reads only the model route,
+    its toolsets and a few agent keys, so a busy mode chosen later (``hermes config set``, ``/busy``
+    typed in another chat) never reached a chat that already existed: its ``config.get busy`` kept
+    answering the creation-time value. Busy mode is a display negotiation, not launch policy, and
+    main's ``config.get busy`` read config.yaml on every call. The profile's explicit value
+    therefore wins over the frozen one; an absent or invalid one leaves the frozen value in place.
+    A bypass launch (``--ignore-user-config`` / ``--safe-mode``) never reads the profile, and cron,
+    Kanban and room routes are not a user's chats."""
+    from gateway.session_policy import SURFACES, profile_config
+    if (getattr(policy, 'ignore_user_config', False) or getattr(policy, 'source', None) not in SURFACES
+            or getattr(authority, 'db', None) is None):
+        return None
+    display = profile_config(authority).get('display')
+    value = display.get('busy_input_mode') if isinstance(display, dict) else None
+    value = value.strip().lower() if isinstance(value, str) else None
+    return value if value in ('interrupt', 'steer', 'queue') else None
+
+
 def session_busy_mode(runner, live):
     """The busy mode a local session's next input runs under (what ``config.get busy`` reports)."""
     value = getattr(live, 'busy_input_mode', None)
@@ -38,7 +59,9 @@ def session_busy_mode(runner, live):
     fallback = 'queue' if policy is not None and getattr(policy, 'source', None) == 'tui' else 'interrupt'
     if policy is None:
         return runner._effective_busy_input_mode(live.source)
-    value = (policy.config().get('display') or {}).get('busy_input_mode') or fallback
+    # The profile's current explicit mode first (see profile_busy_input_mode), then the frozen one.
+    value = (profile_busy_input_mode(local_authority_live(runner, live.source)[0], policy)
+             or (policy.config().get('display') or {}).get('busy_input_mode') or fallback)
     return value if value in ('interrupt', 'steer', 'queue') else fallback
 
 
